@@ -328,16 +328,21 @@ su -s /bin/sh -c "placement-manage db sync" placement
 
 # 解决bug(最后加入) --暂时没有修改
 vi /etc/httpd/conf.d/00-placement-api.conf 
-'''
-<Directory /usr/bin> 
-   <IfVersion > =  2.4> 
-      Require all 
-   allowed </IfVersion> 
-   <IfVersion < 2.4> 
-      Order allow,deny 
-      Allow from all 
-   </IfVersion> 
-</Directory>
+
+```
+<VirtualHost *:8778>
+  #在该节点增加以下部分，对目录授权
+    <Directory /usr/bin>
+        <IfVersion >= 2.4>
+            Require all granted
+        </IfVersion>
+        <IfVersion < 2.4>
+            Order allow,deny
+            Allow from all
+        </IfVersion>
+    </Directory>
+</VirtualHost>
+```
 
 # 重启http
 systemctl restart httpd
@@ -607,8 +612,8 @@ lock_path = /var/lib/neutron/tmp
 
 ]# vi /etc/neutron/plugins/ml2/ml2_conf.ini
 [ml2]
-type_drivers = flat,vlan
-tenant_network_types =
+type_drivers = flat,vlan,vxlan
+tenant_network_types = vxlan
 mechanism_drivers = linuxbridge
 extension_drivers = port_security
 
@@ -617,6 +622,9 @@ flat_networks = extnet
 
 [securitygroup]
 enable_ipset = true
+
+[ml2_type_vxlan]
+vni_ranges = 1:1000
 
 
 
