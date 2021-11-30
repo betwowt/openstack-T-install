@@ -123,7 +123,6 @@ GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY 'keystone123'
 ```
 
 
-
 yum install openstack-keystone httpd mod_wsgi -y
 
 vi /etc/keystone/keystone.conf
@@ -327,8 +326,8 @@ password = placement
 # 同步数据库
 su -s /bin/sh -c "placement-manage db sync" placement
 
-# 解决bug(最后加入)
-cat /etc/httpd/conf.d/00-placement-api.conf 
+# 解决bug(最后加入) --暂时没有修改
+vi /etc/httpd/conf.d/00-placement-api.conf 
 '''
 <Directory /usr/bin> 
    <IfVersion > =  2.4> 
@@ -352,22 +351,24 @@ placement-status upgrade check
 
 # 创库授权
 
+mysql -u root -p
+密码 123
+
 ```sql
 CREATE DATABASE nova_api;
 CREATE DATABASE nova;
 CREATE DATABASE nova_cell0;
-```
-
 
 GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY 'nova123';
 
 GRANT ALL PRIVILEGES ON nova.* TO 'nova'@'%' IDENTIFIED BY 'nova123';
 
 GRANT ALL PRIVILEGES ON nova_cell0.* TO 'nova'@'%' IDENTIFIED BY 'nova123';
+```
 
 
 # 创建计算服务凭证
-openstack user create --domain default --password-prompt nova
+openstack user create --domain default --password-prompt nova # 设置密码，统一nova
 
 openstack role add --project service --user nova admin
 
@@ -388,18 +389,19 @@ openstack-nova-novncproxy  负责云主机连接
 openstack-nova-scheduler  负责调度调度
 
 
-vim /etc/nova/nova.conf
+vi /etc/nova/nova.conf
 [DEFAULT]
 enabled_apis = osapi_compute,metadata
+transport_url = rabbit://openstack:openstack123@controller:5672/
+use_neutron = true
+firewall_driver = nova.virt.firewall.NoopFirewallDriver
+my_ip = 192.168.74.149
 
 [api_database]
 connection = mysql+pymysql://nova:nova123@controller/nova_api
 
 [database]
 connection = mysql+pymysql://nova:nova123@controller/nova
-
-[DEFAULT]
-transport_url = rabbit://openstack:openstack123@controller:5672/
 
 [api]
 auth_strategy = keystone
@@ -414,13 +416,6 @@ user_domain_name = Default
 project_name = service
 username = nova
 password = nova
-
-[DEFAULT]
-use_neutron = true
-firewall_driver = nova.virt.firewall.NoopFirewallDriver
-
-[DEFAULT]
-my_ip = 172.31.7.8
 
 [vnc]
 enabled = true
@@ -458,17 +453,22 @@ su -s /bin/sh -c "nova-manage cell_v2 list_cells" nova
 # 启动自启服务
 systemctl enable openstack-nova-api.service openstack-nova-scheduler.service openstack-nova-conductor.service openstack-nova-novncproxy.service; systemctl start openstack-nova-api.service openstack-nova-scheduler.service openstack-nova-conductor.service openstack-nova-novncproxy.service
 
+
+
+## computer
+
 ###############计算节点##################
 
 # 安装服务
 yum install openstack-nova-compute -y
 
-vim /etc/nova/nova.conf
+vi /etc/nova/nova.conf
 [DEFAULT]
 enabled_apis = osapi_compute,metadata
-
-[DEFAULT]
 transport_url = rabbit://openstack:openstack123@controller
+my_ip = 192.168.74.147
+use_neutron = true
+firewall_driver = nova.virt.firewall.NoopFirewallDriver
 
 [api]
 auth_strategy = keystone
@@ -484,19 +484,11 @@ project_name = service
 username = nova
 password = nova
 
-[DEFAULT]
-my_ip = 172.31.7.9
-
-[DEFAULT]
-use_neutron = true
-firewall_driver = nova.virt.firewall.NoopFirewallDriver
-
-
 [vnc]
 enabled = true
 server_listen = 0.0.0.0
 server_proxyclient_address = $my_ip
-novncproxy_base_url = http://172.31.7.8:6080/vnc_auto.html
+novncproxy_base_url = http://192.168.74.149:6080/vnc_auto.html
 
 [glance]
 api_servers = http://controller:9292
@@ -518,7 +510,7 @@ password = placement
 # 查看是否支持cpu虚拟化
 egrep -c '(vmx|svm)' /proc/cpuinfo
 # 如为零配置
-vim /etc/nova/nova.conf
+vi /etc/nova/nova.conf
 [libvirt]
 virt_type = qemu
 
@@ -532,7 +524,7 @@ openstack compute service list --service nova-compute
 su -s /bin/sh -c "nova-manage cell_v2 discover_hosts --verbose" nova
 
 # 控制节点配置主机发现
-vim /etc/nova/nova.conf
+vi /etc/nova/nova.conf
 [scheduler]
 discover_hosts_in_cells_interval = 300
 
@@ -541,10 +533,19 @@ discover_hosts_in_cells_interval = 300
 ===================================================neutron=================================================
 10.neutron
 
+## controller节点
+
 # 创库授权
+
+mysql -u root -p
+密码 123
+
+```sql
 CREATE DATABASE neutron;
 
 GRANT ALL PRIVILEGES ON neutron.* TO 'neutron'@'%' IDENTIFIED BY 'neutron123';
+
+```
 
 # 要创建服务凭证等操作，请完成以下步骤
 openstack user create --domain default --password-prompt neutron   # 密码统一neutron
@@ -565,19 +566,17 @@ yum install openstack-neutron openstack-neutron-ml2 openstack-neutron-linuxbridg
 
 
 # 配置neutron文件
-]# vim /etc/neutron/neutron.conf
+]# vi /etc/neutron/neutron.conf
 [database]
 connection = mysql+pymysql://neutron:neutron123@controller/neutron
 
 [DEFAULT]
 core_plugin = ml2
 service_plugins =
-
-[DEFAULT]
 transport_url = rabbit://openstack:openstack123@controller
-
-[DEFAULT]
 auth_strategy = keystone
+notify_nova_on_port_status_changes = true
+notify_nova_on_port_data_changes = true
 
 [keystone_authtoken]
 www_authenticate_uri = http://controller:5000
@@ -589,10 +588,6 @@ user_domain_name = default
 project_name = service
 username = neutron
 password = neutron
-
-[DEFAULT]
-notify_nova_on_port_status_changes = true
-notify_nova_on_port_data_changes = true
 
 [nova]
 auth_url = http://controller:5000
@@ -610,17 +605,11 @@ lock_path = /var/lib/neutron/tmp
 
 
 
-]# vim /etc/neutron/plugins/ml2/ml2_conf.ini
+]# vi /etc/neutron/plugins/ml2/ml2_conf.ini
 [ml2]
 type_drivers = flat,vlan
-
-[ml2]
 tenant_network_types =
-
-[ml2]
 mechanism_drivers = linuxbridge
-
-[ml2]
 extension_drivers = port_security
 
 [ml2_type_flat]
@@ -631,7 +620,7 @@ enable_ipset = true
 
 
 
-]# vim /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+]# vi /etc/neutron/plugins/ml2/linuxbridge_agent.ini
 [linux_bridge]
 physical_interface_mappings = extnet:ens33
 
@@ -644,12 +633,12 @@ firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
 
 
 # 配置内核
-cat /etc/sysctl.conf 
+vi /etc/sysctl.conf 
 net.bridge.bridge-nf-call-iptables = 1
 net.bridge.bridge-nf-call-ip6tables = 1
 
 
-]# vim /etc/neutron/dhcp_agent.ini
+]# vi /etc/neutron/dhcp_agent.ini
 [DEFAULT]
 interface_driver = linuxbridge
 dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
@@ -657,14 +646,14 @@ enable_isolated_metadata = true
 
 
 
-]# vim /etc/neutron/metadata_agent.ini
+]# vi /etc/neutron/metadata_agent.ini
 [DEFAULT]
 nova_metadata_host = controller
 metadata_proxy_shared_secret = xier123
 
 
 
-]# vim /etc/nova/nova.conf
+]# vi /etc/nova/nova.conf
 [neutron]
 auth_url = http://controller:5000
 auth_type = password
@@ -697,11 +686,9 @@ systemctl enable neutron-server.service neutron-linuxbridge-agent.service neutro
 yum install openstack-neutron-linuxbridge ebtables ipset -y
 
 # 配置文件
-]# vim /etc/neutron/neutron.conf 
+]# vi /etc/neutron/neutron.conf 
 [DEFAULT]
 transport_url = rabbit://openstack:openstack123@controller
-
-[DEFAULT]
 auth_strategy = keystone
 
 [keystone_authtoken]
@@ -719,7 +706,7 @@ password = neutron
 lock_path = /var/lib/neutron/tmp
 
 
-]# vim /etc/neutron/plugins/ml2/linuxbridge_agent.ini
+]# vi /etc/neutron/plugins/ml2/linuxbridge_agent.ini
 [linux_bridge]
 physical_interface_mappings = extnet:ens33
 [vxlan]
@@ -731,7 +718,7 @@ firewall_driver = neutron.agent.linux.iptables_firewall.IptablesFirewallDriver
 
 
 
-]# vim /etc/nova/nova.conf 
+]# vi /etc/nova/nova.conf 
 [neutron]
 auth_url = http://controller:5000
 auth_type = password
@@ -796,7 +783,7 @@ systemctl restart openstack-nova-compute.service
 # 安装服务
 yum install openstack-dashboard -y
 
-vim /etc/openstack-dashboard/local_settings
+vi /etc/openstack-dashboard/local_settings
 
 OPENSTACK_HOST = "controller"
 ALLOWED_HOSTS = ['*']
@@ -838,10 +825,11 @@ OPENSTACK_NEUTRON_NETWORK = {
 }
 
 TIME_ZONE = "Asia/Shanghai"
+WEBROOT = '/dashboard'
 
 
 
-vim  /etc/httpd/conf.d/openstack-dashboard.conf
+vi  /etc/httpd/conf.d/openstack-dashboard.conf
 WSGIApplicationGroup %{GLOBAL}
 
 
