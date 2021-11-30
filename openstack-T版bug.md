@@ -1,11 +1,31 @@
-1.初始化配置
-# 关闭selinux和防火墙
+
+# openstack T版安装
+
+> 镜像使用 CentOS-7-x86_64-Minimal-1908.iso
+
+
+### 最小化安装需要两台设备
+
+|hostname|ip|
+|---|---|
+|controller|192.168.74.149|
+|computer1|192.168.74.147|
+
+
+## 1.初始化配置
+### 关闭selinux和防火墙并重启
 sed -i 's/SELINUX=enforcing/SELINUX=disabled/g' /etc/selinux/config; systemctl stop firewalld; systemctl disable firewalld
+reboot
 
 
-# 配置时间服务器
 
-# 所有节点
+### 配置hosts
+在所有设备上配置 /etc/hosts
+192.168.74.149 controller
+
+### 配置时间服务器
+
+### 所有节点
 yum -y install chrony
 
 # controller
@@ -14,23 +34,23 @@ server ntp3.aliyun.com iburst    # 只留这一段
 allow all
 local stratum 10
 
-# compute
+### compute
 vi /etc/chrony.conf 
 server controller iburst
 
-# 所有节点
+### 所有节点
 yum install centos-release-openstack-train -y
-# 需要依赖什么安装的源
+### 需要依赖什么安装的源
 yum install python-openstackclient openstack-selinux -y
 
 
 
-2.数据库（controller）
+## 2.数据库（controller）
 yum install mariadb mariadb-server python2-PyMySQL
 
-]# cat /etc/my.cnf.d/openstack.cnf 
+]# vi /etc/my.cnf.d/openstack.cnf 
 [mysqld]
-bind-address = 172.31.7.8
+bind-address = 192.168.74.149
 
 default-storage-engine = innodb
 innodb_file_per_table = on
@@ -66,13 +86,14 @@ rabbitmq-plugins list
 rabbitmq-plugins enable rabbitmq_management rabbitmq_management_agent
 
 # 访问
-http://172.31.7.8:15672/
+http://192.168.74.149:15672/
+账号密码guest/guest
 
 
 4.缓存服务
 yum install memcached python-memcached -y
 
-cat /etc/sysconfig/memcached 
+vi /etc/sysconfig/memcached 
 PORT="11211"
 USER="memcached"
 MAXCONN="1024"
@@ -91,13 +112,21 @@ systemctl enable memcached.service;  systemctl start memcached.service
 ===================================================keystone=================================================
 6.keystone
 
+
+mysql -u root -p
+密码 123
+
+```sql
 CREATE DATABASE keystone;
 
 GRANT ALL PRIVILEGES ON keystone.* TO 'keystone'@'%' IDENTIFIED BY 'keystone123';
+```
+
+
 
 yum install openstack-keystone httpd mod_wsgi -y
 
-vim /etc/keystone/keystone.conf
+vi /etc/keystone/keystone.conf
 [database]
 connection = mysql+pymysql://keystone:keystone123@controller/keystone
 
@@ -115,7 +144,7 @@ keystone-manage credential_setup --keystone-user keystone --keystone-group keyst
 
 keystone-manage bootstrap --bootstrap-password admin --bootstrap-admin-url http://controller:5000/v3/ --bootstrap-internal-url http://controller:5000/v3/ --bootstrap-public-url http://controller:5000/v3/ --bootstrap-region-id RegionOne
 
-vim /etc/httpd/conf/httpd.conf
+vi /etc/httpd/conf/httpd.conf
 ServerName controller
 
 
@@ -125,15 +154,29 @@ ln -s /usr/share/keystone/wsgi-keystone.conf /etc/httpd/conf.d/
 systemctl enable httpd.service; systemctl start httpd.service
 
 
-cat admin.sh 
+vi admin.sh
 #!/bin/bash
+export OS_PROJECT_DOMAIN_NAME=Default
+export OS_USER_DOMAIN_NAME=Default
+export OS_PROJECT_NAME=admin
 export OS_USERNAME=admin
 export OS_PASSWORD=admin
-export OS_PROJECT_NAME=admin
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_DOMAIN_NAME=Default
 export OS_AUTH_URL=http://controller:5000/v3
 export OS_IDENTITY_API_VERSION=3
+export OS_IMAGE_API_VERSION=2
+
+vi myuser.sh
+#!/bin/bash
+export OS_PROJECT_DOMAIN_NAME=Default
+export OS_USER_DOMAIN_NAME=Default
+export OS_PROJECT_NAME=myproject
+export OS_USERNAME=myuser
+export OS_PASSWORD=myuser
+export OS_AUTH_URL=http://controller:5000/v3
+export OS_IDENTITY_API_VERSION=3
+export OS_IMAGE_API_VERSION=2
+
+source admin.sh
 
 openstack domain create --description "An Example Domain" example
 
@@ -156,30 +199,6 @@ openstack --os-auth-url http://controller:5000/v3 --os-project-domain-name Defau
 # 需要输入myuser密码，密码为myuser
 openstack --os-auth-url http://controller:5000/v3 --os-project-domain-name Default --os-user-domain-name Default --os-project-name myproject --os-username myuser token issue
 
-
-cat admin.sh 
-#!/bin/bash
-export OS_PROJECT_DOMAIN_NAME=Default
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_NAME=admin
-export OS_USERNAME=admin
-export OS_PASSWORD=admin
-export OS_AUTH_URL=http://controller:5000/v3
-export OS_IDENTITY_API_VERSION=3
-export OS_IMAGE_API_VERSION=2
-
-cat myuser.sh 
-#!/bin/bash
-export OS_PROJECT_DOMAIN_NAME=Default
-export OS_USER_DOMAIN_NAME=Default
-export OS_PROJECT_NAME=myproject
-export OS_USERNAME=myuser
-export OS_PASSWORD=myuser
-export OS_AUTH_URL=http://controller:5000/v3
-export OS_IDENTITY_API_VERSION=3
-export OS_IMAGE_API_VERSION=2
-
-
 # 最终验证
 source admin.sh
 openstack token issue
@@ -190,9 +209,15 @@ openstack token issue
 7.glance
 
 # 创库授权
+
+mysql -u root -p
+密码 123
+
+
+```sql
 CREATE DATABASE glance;
 GRANT ALL PRIVILEGES ON glance.* TO 'glance'@'%' IDENTIFIED BY 'glance123';
-
+```
 
 openstack user create --domain default --password-prompt glance    # 需要设置密码，统一glance
 
@@ -210,7 +235,7 @@ openstack endpoint create --region RegionOne image admin http://controller:9292
 yum install openstack-glance -y
 
 # 配置glance文件（openstack配置文件不能有中文，注释的也不行）
-vim /etc/glance/glance-api.conf
+vi /etc/glance/glance-api.conf
 [database]
 connection = mysql+pymysql://glance:glance123@controller/glance
 
@@ -243,7 +268,9 @@ systemctl enable openstack-glance-api.service; systemctl start openstack-glance-
 
 
 # 上传镜像
-glance image-create --name "cirros4" --file cirros-0.4.0-x86_64-disk.img --disk-format qcow2 --container-format bare --visibility public
+将文件 CentOS-7-x86_64-Minimal-1908.iso 传入到服务器中
+
+glance image-create --name "centos7" --file CentOS-7-x86_64-Minimal-1908.iso --disk-format qcow2 --container-format bare --visibility public
 
 
 
@@ -252,8 +279,15 @@ glance image-create --name "cirros4" --file cirros-0.4.0-x86_64-disk.img --disk-
 8.placement
 
 # 创库授权
+
+mysql -u root -p
+密码 123
+
+```sql
 CREATE DATABASE placement;
 GRANT ALL PRIVILEGES ON placement.* TO 'placement'@'%' IDENTIFIED BY 'placement123';
+```
+
 
 # 创建账号、域、用户等配置
 openstack user create --domain default --password-prompt placement   # 设置密码，统一placement
@@ -272,7 +306,7 @@ openstack endpoint create --region RegionOne placement admin http://controller:8
 yum install openstack-placement-api -y
 
 # 配置placement文件
-vim /etc/placement/placement.conf
+vi /etc/placement/placement.conf
 [placement_database]
 connection = mysql+pymysql://placement:placement123@controller/placement
 
@@ -317,9 +351,13 @@ placement-status upgrade check
 9.nova
 
 # 创库授权
+
+```sql
 CREATE DATABASE nova_api;
 CREATE DATABASE nova;
 CREATE DATABASE nova_cell0;
+```
+
 
 GRANT ALL PRIVILEGES ON nova_api.* TO 'nova'@'%' IDENTIFIED BY 'nova123';
 
