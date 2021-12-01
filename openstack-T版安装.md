@@ -269,7 +269,7 @@ systemctl enable openstack-glance-api.service; systemctl start openstack-glance-
 # 上传镜像
 将文件 CentOS-7-x86_64-Minimal-1908.iso 传入到服务器中
 
-glance image-create --name "centos7" --file CentOS-7-x86_64-Minimal-1908.iso --disk-format qcow2 --container-format bare --visibility public
+glance image-create --name "cirros" --file cirros-0.4.0-x86_64-disk.img --disk-format qcow2 --container-format bare --visibility public
 
 
 
@@ -613,7 +613,7 @@ lock_path = /var/lib/neutron/tmp
 ]# vi /etc/neutron/plugins/ml2/ml2_conf.ini
 [ml2]
 type_drivers = flat,vlan,vxlan
-tenant_network_types = vxlan
+tenant_network_types = flat
 mechanism_drivers = linuxbridge
 extension_drivers = port_security
 
@@ -760,13 +760,13 @@ openstack keypair list
 
 openstack security group rule create --proto icmp default
 
-
 openstack network create  --share --external --provider-physical-network extnet --provider-network-type flat flat-extnet
-
 
 openstack subnet create --network flat-extnet --allocation-pool start=172.31.7.50,end=172.31.7.100 --dns-nameserver 114.114.114.114 --gateway 172.31.7.254 --subnet-range 172.31.7.0/24 flat-subnet
 
-openstack server create --flavor m1.nano --image cirros4 --nic net-id=1e4869bb-3c96-490b-b468-24209268498d --security-group default --key-name mykey vm1
+openstack network list # 查看网络id 
+
+openstack server create --flavor m1.nano --image cirros4 --nic net-id=<网络id> --security-group default --key-name mykey vm1
 
 openstack console url show vm1
 
@@ -847,17 +847,7 @@ systemctl restart httpd.service memcached.service
 
 
 
-
-
-
-
-
-
-
-
-
-
-
+### 以下内容作为补充，不用二次修改
 ###################################################
 
 1.placement组件
@@ -880,9 +870,6 @@ vim /etc/httpd/conf.d/00-placement-api.conf
 https://docs.openstack.org/ocata/config-reference/networking/samples/ml2_conf.ini.html
 
 https://docs.openstack.org/ocata/config-reference/networking/samples/linuxbridge_agent.ini
-
-
-
 
 3.创建实例
 # 远程访问虚拟机（执行会得到一个url，访问url即可）
